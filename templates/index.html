@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart Traffic Control Center</title>
+  <!-- Socket.IO Client CDN -->
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #0f172a; color: #f8fafc; padding: 24px; }
+    header { text-align: center; margin-bottom: 28px; }
+    h1 { font-size: 1.8rem; font-weight: 700; color: #38bdf8; }
+    p.subtitle { color: #94a3b8; font-size: 0.95rem; margin-top: 4px; }
+    
+    .status-banner { max-width: 900px; margin: 0 auto 24px auto; background: #1e293b; padding: 16px 20px; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #334155; }
+    .status-badge { display: inline-block; padding: 6px 12px; border-radius: 20px; font-weight: 600; font-size: 0.85rem; }
+    .badge-normal { background: #065f46; color: #34d399; }
+    .badge-emergency { background: #991b1b; color: #fca5a5; animation: pulse 1s infinite alternate; }
+
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; max-width: 900px; margin: 0 auto 28px auto; }
+    .card { background: #1e293b; border-radius: 12px; padding: 20px; text-align: center; border: 2px solid #334155; transition: all 0.3s ease; }
+    .card.green-light { border-color: #22c55e; box-shadow: 0 0 16px rgba(34, 197, 94, 0.25); background: #064e3b; }
+    .card.emergency-light { border-color: #ef4444; box-shadow: 0 0 20px rgba(239, 68, 68, 0.4); background: #7f1d1d; animation: pulse 0.8s infinite alternate; }
+    
+    .lane-title { font-size: 1rem; color: #cbd5e1; font-weight: 600; }
+    .count { font-size: 2.8rem; font-weight: 800; margin: 10px 0; color: #ffffff; }
+    .signal-status { font-size: 0.85rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+
+    /* Chart Panel Header & Container */
+    .chart-panel { max-width: 900px; margin: 0 auto 28px auto; background: #1e293b; padding: 20px; border-radius: 12px; border: 1px solid #334155; }
+    .chart-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+    .chart-panel h3 { font-size: 1.1rem; color: #f1f5f9; }
+
+    .controls-panel { max-width: 900px; margin: 0 auto; background: #1e293b; padding: 20px; border-radius: 12px; border: 1px solid #334155; }
+    .controls-panel h3 { font-size: 1.1rem; margin-bottom: 12px; color: #f1f5f9; }
+    .button-group { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
+    
+    button, .btn-export { cursor: pointer; padding: 10px 16px; border: none; border-radius: 8px; font-weight: 600; font-size: 0.88rem; transition: opacity 0.2s; text-decoration: none; }
+    button:hover, .btn-export:hover { opacity: 0.9; }
+    
+    .btn-override { background: #dc2626; color: #fff; }
+    .btn-clear { background: #475569; color: #fff; width: 100%; }
+    .btn-export { background: #0284c7; color: #ffffff; display: inline-flex; align-items: center; gap: 6px; }
+
+    @keyframes pulse { from { opacity: 0.85; } to { opacity: 1; } }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>🚦 Smart Traffic Control System</h1>
+    <p class="subtitle">Live WebSocket Feed & Signal Optimizer</p>
+  </header>
+
+  <!-- Global Status Indicator -->
+  <div class="status-banner">
+    <div>
+      <span>Active Signal State: </span>
+      <strong id="active-green-text" style="color: #38bdf8;">Loading...</strong>
+      <span id="duration-text" style="color: #94a3b8; font-size: 0.9rem;"></span>
+    </div>
+    <div id="status-badge" class="status-badge badge-normal">System Normal</div>
+  </div>
+
+  <!-- Lane Cards -->
+  <div class="grid">
+    <div class="card" id="card-lane_1">
+      <div class="lane-title">Lane 1</div>
+      <div class="count" id="count-lane_1">0</div>
+      <div class="signal-status" id="status-lane_1">RED</div>
+    </div>
+    <div class="card" id="card-lane_2">
+      <div class="lane-title">Lane 2</div>
+      <div class="count" id="count-lane_2">0</div>
+      <div class="signal-status" id="status-lane_2">RED</div>
+    </div>
+    <div class="card" id="card-lane_3">
+      <div class="lane-title">Lane 3</div>
+      <div class="count" id="count-lane_3">0</div>
+      <div class="signal-status" id="status-lane_3">RED</div>
+    </div>
+    <div class="card" id="card-lane_4">
+      <div class="lane-title">Lane 4</div>
+      <div class="count" id="count-lane_4">0</div>
+      <div class="signal-status" id="status-lane_4">RED</div>
+    </div>
+  </div>
+
+  <!-- Historical Traffic Chart Panel -->
+  <div class="chart-panel">
+    <div class="chart-header">
+      <h3>📈 Traffic Density History (Last 15 Cycles)</h3>
+      <a href="/api/export-csv" class="btn-export" download>
+        📥 Export CSV Log
+      </a>
+    </div>
+    <canvas id="trafficChart" height="100"></canvas>
+  </div>
+
+  <!-- Manual Controls -->
+  <div class="controls-panel">
+    <h3>Manual Emergency Override</h3>
+    <div class="button-group">
+      <button class="btn-override" onclick="triggerOverride('lane_1')">Override Lane 1</button>
+      <button class="btn-override" onclick="triggerOverride('lane_2')">Override Lane 2</button>
+      <button class="btn-override" onclick="triggerOverride('lane_3')">Override Lane 3</button>
+      <button class="btn-override" onclick="triggerOverride('lane_4')">Override Lane 4</button>
+    </div>
+    <button class="btn-clear" onclick="clearEmergency()">Clear Emergency Override</button>
+  </div>
+
+  <script>
+    const socket = io();
+
+    // Initialize Chart.js
+    const ctx = document.getElementById('trafficChart').getContext('2d');
+    const trafficChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [
+          { label: 'Lane 1', borderColor: '#38bdf8', backgroundColor: '#38bdf822', data: [], tension: 0.3 },
+          { label: 'Lane 2', borderColor: '#f43f5e', backgroundColor: '#f43f5e22', data: [], tension: 0.3 },
+          { label: 'Lane 3', borderColor: '#eab308', backgroundColor: '#eab30822', data: [], tension: 0.3 },
+          { label: 'Lane 4', borderColor: '#a855f7', backgroundColor: '#a855f722', data: [], tension: 0.3 }
+        ]
+      },
+      options: {
+        responsive: true,
+        scales: {
+          x: { ticks: { color: '#94a3b8' }, grid: { color: '#334155' } },
+          y: { beginAtZero: true, ticks: { color: '#94a3b8' }, grid: { color: '#334155' } }
+        },
+        plugins: {
+          legend: { labels: { color: '#f8fafc' } }
+        }
+      }
+    });
+
+    // Fetch and Update Chart Data
+    async function updateChartHistory() {
+      try {
+        const response = await fetch('/api/history');
+        const history = await response.json();
+
+        const timestamps = history.map(row => row.timestamp);
+        const lane1Data = history.map(row => row.lane_1);
+        const lane2Data = history.map(row => row.lane_2);
+        const lane3Data = history.map(row => row.lane_3);
+        const lane4Data = history.map(row => row.lane_4);
+
+        trafficChart.data.labels = timestamps;
+        trafficChart.data.datasets[0].data = lane1Data;
+        trafficChart.data.datasets[1].data = lane2Data;
+        trafficChart.data.datasets[2].data = lane3Data;
+        trafficChart.data.datasets[3].data = lane4Data;
+        trafficChart.update();
+      } catch (err) {
+        console.error("Error fetching history:", err);
+      }
+    }
+
+    // Live Socket Updates
+    socket.on("traffic_update", (state) => {
+      const counts = state.counts;
+      const currentGreen = state.current_green;
+      const duration = state.green_duration;
+      const isEmergency = state.emergency_active;
+      const emergencyLane = state.emergency_lane;
+
+      document.getElementById("active-green-text").innerText = `${currentGreen.replace('_', ' ').toUpperCase()} GREEN`;
+      document.getElementById("duration-text").innerText = `(${duration}s dynamic duration)`;
+
+      const badge = document.getElementById("status-badge");
+      if (isEmergency) {
+        badge.innerText = `EMERGENCY: ${emergencyLane.replace('_', ' ').toUpperCase()}`;
+        badge.className = "status-badge badge-emergency";
+      } else {
+        badge.innerText = "System Normal";
+        badge.className = "status-badge badge-normal";
+      }
+
+      ["lane_1", "lane_2", "lane_3", "lane_4"].forEach((lane) => {
+        const countEl = document.getElementById(`count-${lane}`);
+        const statusEl = document.getElementById(`status-${lane}`);
+        const card = document.getElementById(`card-${lane}`);
+
+        if (countEl) countEl.innerText = counts[lane] !== undefined ? counts[lane] : 0;
+
+        card.className = "card";
+        statusEl.innerText = "RED";
+
+        if (isEmergency && lane === emergencyLane) {
+          card.classList.add("emergency-light");
+          statusEl.innerText = "EMERGENCY GREEN";
+        } else if (!isEmergency && lane === currentGreen) {
+          card.classList.add("green-light");
+          statusEl.innerText = "GREEN";
+        }
+      });
+
+      // Refresh chart on each cycle payload
+      updateChartHistory();
+    });
+
+    // REST Overrides
+    async function triggerOverride(lane) {
+      await fetch('/api/override-emergency', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lane: lane })
+      });
+    }
+
+    async function clearEmergency() {
+      await fetch('/api/clear-emergency', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Initial load
+    updateChartHistory();
+  </script>
+</body>
+</html>
